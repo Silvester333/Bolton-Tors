@@ -1,0 +1,492 @@
+{
+  "name": "bolton-tours",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "seed": "node prisma/seed.js",
+    "docker:up": "docker-compose up --build"
+  },
+  "dependencies": {
+    "@prisma/client": "^4.20.0",
+    "axios": "^1.4.0",
+    "next": "14.1.0",
+    "next-auth": "^4.22.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "stripe": "^12.10.0",
+    "tailwindcss": "^4.5.0"
+  },
+  "devDependencies": {
+    "prisma": "^4.20.0",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.28",
+    "eslint": "8.46.0"
+  }
+}
+# Copy to .env and fill values
+DATABASE_URL="postgresql://bolton:boltonpass@localhost:5432/bolton"
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="replace_with_a_random_secret"
+STRIPE_SECRET_KEY="sk_test_..."
+SENDGRID_API_KEY="SG..."
+BG_COLOR="#f3f6fb"
+module.exports = {
+  reactStrictMode: true,
+  images: {
+    domains: ["images.unsplash.com", "res.cloudinary.com"]
+  }
+};
+module.exports = {
+  content: [
+    "./pages/**/*.{js,jsx,ts,tsx}",
+    "./components/**/*.{js,jsx,ts,tsx}"
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: "#0f6fff",
+        navy: "#0b2545",
+        accent: "#00bfa6"
+      }
+    }
+  },
+  plugins: []
+};
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {}
+  }
+};
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Background color variable - change via .env or inline CSS */
+:root {
+  --bg-color: #f3f6fb;
+  --site-max-width: 1200px;
+}
+
+/* Body background uses CSS variable so you can change it easily */
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: #0b2545;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+/* Container */
+.container {
+  max-width: var(--site-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  image     String?
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  bookings  Booking[]
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model Flight {
+  id           String   @id @default(uuid())
+  airline      String
+  flightNumber String
+  origin       String
+  destination  String
+  departAt     DateTime
+  arriveAt     DateTime
+  durationMins Int
+  seats        Int
+  priceCents   Int
+  currency     String  @default("USD")
+  createdAt    DateTime @default(now())
+  bookings     Booking[] @relation("FlightBooking")
+}
+
+model Hotel {
+  id         String   @id @default(uuid())
+  name       String
+  city       String
+  address    String
+  rating     Float
+  rooms      Int
+  priceCents Int
+  currency   String   @default("USD")
+  createdAt  DateTime @default(now())
+  bookings   Booking[] @relation("HotelBooking")
+}
+
+model CarRental {
+  id         String   @id @default(uuid())
+  company    String
+  model      String
+  city       String
+  seats      Int
+  priceCents Int
+  currency   String   @default("USD")
+  createdAt  DateTime @default(now())
+}
+
+model Package {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  priceCents  Int
+  currency    String   @default("USD")
+  flights     Flight[] @relation("PackageFlights", references: [id])
+  hotels      Hotel[]  @relation("PackageHotels", references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model Booking {
+  id          String   @id @default(uuid())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  type        BookingType
+  flightId    String? 
+  flight      Flight?  @relation("FlightBooking", fields: [flightId], references: [id])
+  hotelId     String?
+  hotel       Hotel?   @relation("HotelBooking", fields: [hotelId], references: [id])
+  packageId   String?
+  amountCents Int
+  currency    String   @default("USD")
+  status      BookingStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+}
+
+enum BookingType {
+  FLIGHT
+  HOTEL
+  PACKAGE
+  CAR
+  BUS_TRAIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('Seeding demo data...');
+
+  // Admin user
+  await prisma.user.upsert({
+    where: { email: 'admin@bolton.com' },
+    update: {},
+    create: {
+      email: 'admin@bolton.com',
+      name: 'Admin Bolton',
+      role: 'ADMIN'
+    }
+  });
+
+  // Sample flights
+  const flight1 = await prisma.flight.create({
+    data: {
+      airline: 'Bolton Air',
+      flightNumber: 'BT101',
+      origin: 'LON',
+      destination: 'NYC',
+      departAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
+      arriveAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7 + 1000 * 60 * 60 * 8),
+      durationMins: 480,
+      seats: 120,
+      priceCents: 45000,
+      currency: 'USD'
+    }
+  });
+
+  // Sample hotel
+  const hotel1 = await prisma.hotel.create({
+    data: {
+      name: 'Bolton Grand Hotel',
+      city: 'New York',
+      address: '1 Bolton Plaza',
+      rating: 4.6,
+      rooms: 200,
+      priceCents: 20000,
+      currency: 'USD'
+    }
+  });
+
+  // Sample package
+  const pkg = await prisma.package.create({
+    data: {
+      title: 'NYC Weekend Getaway',
+      description: 'Return flights + 3 nights hotel',
+      priceCents: 60000,
+      currency: 'USD',
+      flights: { connect: [{ id: flight1.id }] },
+      hotels: { connect: [{ id: hotel1.id }] }
+    }
+  });
+
+  console.log('Seeding done.');
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
+import '../styles/globals.css';
+import { SessionProvider } from 'next-auth/react';
+import Head from 'next/head';
+
+function MyApp({ Component, pageProps: { session, ...pageProps } }) {
+  return (
+    <SessionProvider session={session}>
+      <Head>
+        <title>Bolton Tours</title>
+        <meta name="description" content="Bolton Tours - travel booking platform" />
+      </Head>
+      <Component {...pageProps} />
+    </SessionProvider>
+  );
+}
+
+export default MyApp;
+import Navbar from '../components/Navbar';
+import Hero from '../components/Hero';
+import SearchForm from '../components/SearchForm';
+import { useEffect } from 'react';
+
+export default function Home({ bgColor }) {
+  useEffect(() => {
+    // Apply background color from env (set in _document or server props in a fuller implementation).
+    if (bgColor) {
+      document.documentElement.style.setProperty('--bg-color', bgColor);
+    }
+  }, [bgColor]);
+
+  return (
+    <>
+      <Navbar />
+      <main className="container py-8">
+        <Hero />
+        <div className="mt-6">
+          <SearchForm />
+        </div>
+        {/* Additional sections: featured packages, top destinations, reviews, etc. */}
+      </main>
+    </>
+  );
+}
+
+export function getServerSideProps(context) {
+  // Pass BG_COLOR into the page at runtime
+  return {
+    props: {
+      bgColor: process.env.BG_COLOR || '#f3f6fb'
+    }
+  };
+}
+import Link from 'next/link';
+import { signIn, signOut, useSession } from 'next-auth/react';
+
+export default function Navbar() {
+  const { data: session } = useSession();
+
+  return (
+    <nav className="bg-navy text-white">
+      <div className="container flex items-center justify-between py-4">
+        <div className="flex items-center gap-4">
+          <Link href="/">
+            <a className="text-xl font-bold">Bolton Tours</a>
+          </Link>
+          <Link href="/packages"><a className="hover:underline">Packages</a></Link>
+          <Link href="/flights"><a className="hover:underline">Flights</a></Link>
+          <Link href="/hotels"><a className="hover:underline">Hotels</a></Link>
+        </div>
+        <div className="flex items-center gap-4">
+          {session ? (
+            <>
+              <span>{session.user?.name || session.user?.email}</span>
+              <button onClick={() => signOut()} className="bg-primary px-3 py-1 rounded">Sign out</button>
+            </>
+          ) : (
+            <button onClick={() => signIn()} className="bg-primary px-3 py-1 rounded">Sign in</button>
+          )}
+        </div>
+      </div>
+    </nav>
+  );
+}
+import { useState } from 'react';
+
+export default function SearchForm() {
+  const [tripType, setTripType] = useState('FLIGHT');
+  const [origin, setOrigin] = useState('');
+  const [destination, setDestination] = useState('');
+  const [depart, setDepart] = useState('');
+  const [returnDate, setReturnDate] = useState('');
+
+  return (
+    <div id="search" className="bg-white rounded-lg p-6 shadow">
+      <div className="flex gap-4">
+        <select value={tripType} onChange={(e) => setTripType(e.target.value)} className="border p-2 rounded">
+          <option value="FLIGHT">Flights</option>
+          <option value="HOTEL">Hotels</option>
+          <option value="PACKAGE">Packages</option>
+          <option value="CAR">Cars</option>
+          <option value="BUS_TRAIN">Bus/Train</option>
+        </select>
+        <input value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="Origin / City" className="border p-2 rounded flex-1"/>
+        <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="Destination / City" className="border p-2 rounded flex-1"/>
+        <input type="date" value={depart} onChange={(e) => setDepart(e.target.value)} className="border p-2 rounded"/>
+        <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="border p-2 rounded"/>
+        <button className="bg-accent text-white px-4 rounded">Search</button>
+      </div>
+    </div>
+  );
+}
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+
+export default async function handler(req, res) {
+  if (req.method === 'POST') {
+    // Create a booking (simplified)
+    const { userId, type, flightId, hotelId, amountCents, currency } = req.body;
+    try {
+      const booking = await prisma.booking.create({
+        data: {
+          userId,
+          type,
+          flightId,
+          hotelId,
+          amountCents,
+          currency,
+          status: 'PENDING'
+        }
+      });
+      // TODO: Integrate payment flow via Stripe
+      return res.status(201).json(booking);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Could not create booking' });
+    }
+  } else if (req.method === 'GET') {
+    // Return bookings (admin or user-limited in a fuller implementation)
+    const bookings = await prisma.booking.findMany({
+      include: { user: true, flight: true, hotel: true }
+    });
+    return res.status(200).json(bookings);
+  } else {
+    res.setHeader('Allow', ['GET', 'POST']);
+    res.status(405).end(`Method ${req.method} Not Allowed`);
+  }
+}
+// Simplified Stripe session creation (serverless example)
+import Stripe from 'stripe';
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).end();
+  const { amountCents, currency = 'USD', bookingId } = req.body;
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [
+        { price_data: { currency, product_data: { name: 'Booking charge' }, unit_amount: amountCents }, quantity: 1 }
+      ],
+      success_url: `${process.env.NEXTAUTH_URL}/bookings/success?session_id={CHECKOUT_SESSION_ID}&bookingId=${bookingId}`,
+      cancel_url: `${process.env.NEXTAUTH_URL}/bookings/cancel?bookingId=${bookingId}`
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'stripe error' });
+  }
+}
+# Node + Next.js Dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+EXPOSE 3000
+CMD ["npm", "start"]
+version: "3.8"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: bolton
+      POSTGRES_PASSWORD: boltonpass
+      POSTGRES_DB: bolton
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://bolton:boltonpass@db:5432/bolton
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: replace_me
+      STRIPE_SECRET_KEY: sk_test_...
+      SENDGRID_API_KEY: SG...
+      BG_COLOR: "#f3f6fb"
+    depends_on:
+      - db
+volumes:
+  db_data:
+// For quick demo: run this endpoint locally (only in dev) to seed demo data
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+
+export default async function handler(req, res) {
+  if (process.env.NODE_ENV !== 'development') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    // Call the seed script logic or create a few items quickly
+    await prisma.user.upsert({ where: { email: 'admin@bolton.com' }, update: {}, create: { email: 'admin@bolton.com', name: 'Admin', role: 'ADMIN' }});
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'seed failed' });
+  }
+}
